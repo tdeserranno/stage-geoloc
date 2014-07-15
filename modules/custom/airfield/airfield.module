@@ -292,3 +292,36 @@ function _airfield_generate_map_data($nodes, $canvas = 'gmap-canvas') {
 
   return $data;
 }
+
+/**
+ * Implements hook_menu().
+ */
+function airfield_menu() {
+  $items = array();
+  
+  $items['admin/airfield/admin_gmap'] = array(
+    'title' => 'Admin GMAP',
+    'description' => 'Administer Google Maps API settings for airfield module',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('airfield_admin_form'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  
+  return $items;
+}
+
+/**
+ * Form builder : admin settings for airfield module
+ */
+function airfield_admin_form($form, &$form_state) {
+  $form['airfield_gmap_api_key'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Google Maps API key'),
+    '#size' => 100,
+    '#maxlength' => 255,
+    '#required' => TRUE,
+  );
+  
+  return system_settings_form($form);
+}
