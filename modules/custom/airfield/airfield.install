@@ -1,0 +1,142 @@
+<?php
+
+/**
+ * @file 
+ * Install file for Airfield module
+ * 
+ * Tutorials used:
+ * http://www.sitepoint.com/creating-a-new-drupal-node-type/
+ * Lynda.com Windfarms module
+ */
+
+/**
+ * Implements hook_install().
+ */
+function airfield_install() {
+  // Save all new nodes types defined by modules
+  node_types_rebuild();
+  $types = node_type_get_types();
+  // Add body field to our airfield content type
+  node_add_body_field($types['airfield']);
+  // Custom function to add fields to content type
+  add_custom_fields();
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function airfield_uninstall() {
+  $type = 'airfield';
+  // Get nids of airfield type
+  $query = db_select('node', 'n')
+      ->fields('n', array('nid'))
+      ->condition('n.type', $type);
+  $nids = $query->execute()->fetchCol();
+  // Delete nodes and content type
+  node_delete_multiple($nids);
+  delete_custom_fields();
+  node_type_delete($type);
+  field_purge_batch(500);
+}
+
+/**
+ * Custom function : create latitude and longitude fields
+ */
+function _airfield_installed_fields() {
+  // Get t() function
+  $t = get_t();
+
+  // Build new fields
+  $fields = array();
+  $fields['latitude'] = array(
+    'field_name' => 'latitude',
+    'label' => $t('Latitude'),
+    'type' => 'number_decimal',
+    'settings' => array(
+      'max_length' => 50,
+      'precision' => 10,
+      'scale' => 6,
+      'decimal_seperator' => '.',
+    ),
+  );
+  $fields['longitude'] = array(
+    'field_name' => 'longitude',
+    'label' => $t('Longitude'),
+    'type' => 'number_decimal',
+    'settings' => array(
+      'max_length' => 50,
+      'precision' => 10,
+      'scale' => 6,
+      'decimal_seperator' => '.',
+    ),
+  );
+
+  return $fields;
+}
+
+/**
+ * Custom function : add field instances
+ */
+function _airfield_installed_instances() {
+  // get t() function
+  $t = get_t();
+
+  // Build instances
+  return array(
+    'latitude' => array(
+      'field_name' => 'latitude',
+      'entity_type' => 'node',
+      'bundle' => 'airfield',
+      'label' => $t('Latitude'),
+      'widget' => array(
+        'type' => 'text_textfield'
+      ),
+      'settings' => array(
+        'text_processing' => 0,
+      ),
+    ),
+    'longitude' => array(
+      'field_name' => 'longitude',
+      'entity_type' => 'node',
+      'bundle' => 'airfield',
+      'label' => $t('Longitude'),
+      'widget' => array(
+        'type' => 'text_textfield'
+      ),
+      'settings' => array(
+        'text_processing' => 0,
+      ),
+    ),
+  );
+}
+
+/**
+ * Custom function : add custom fields and field instances
+ */
+function add_custom_fields() {
+  // Add fields
+  foreach (_airfield_installed_fields() as $field) {
+    field_create_field($field);
+  }
+  
+  // Add field instances
+  foreach (_airfield_installed_instances() as $fieldinstance) {
+    field_create_instance($fieldinstance);
+  }
+}
+
+/**
+ * Custom function : delete custom fields and fieldinstances
+ */
+function delete_custom_fields() {
+  // Delete fields
+  foreach (array_keys(_airfield_installed_fields()) as $field) {
+    field_delete_field($field);
+  }
+  
+  // Delete field instances
+  $instances = field_info_instances('node', 'airfield');
+  foreach ($instances as $instance_name => $fieldinstance) {
+    field_delete_instance($fieldinstance);
+  }
+}

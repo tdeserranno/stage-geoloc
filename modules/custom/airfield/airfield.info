@@ -1,0 +1,8 @@
+name = Airfield
+description = Content type and Google Map block
+core = 7.x
+version = 7.x-dev
+package = Stage modules
+;
+files[] = airfield.install
+files[] = airfield.module
