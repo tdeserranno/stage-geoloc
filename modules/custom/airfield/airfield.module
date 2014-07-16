@@ -50,9 +50,7 @@ function airfield_form($node, $form_state) {
  * Assign custom validation function to airfield_node_form
  */
 function airfield_form_alter(&$form, &$form_state, $form_id) {
-  // Debugging info.
 //    dpm($form_id);
-
   if ($form_id == 'airfield_node_form') {
     $form['#validate'][] = 'airfield_form_validate';
   }
@@ -115,18 +113,10 @@ function _airfield_block_content($block_id) {
     $airfield_nodes = _airfield_get_nodes();
 //    dpm($airfield_nodes, 'airfields');
     // Build JS data
-    $settings = _airfield_generate_map_data($airfield_nodes);
-
-    // Add Google maps API key
-    drupal_add_js('https://maps.googleapis.com/maps/api/js?key=AIzaSyBv1xUaQivBONOhtV0qbJ_JRY74w691VRM', 'external');
-
-    // Pass data to JS Drupal.settings
-    drupal_add_js(array('airfield' => array('data' => $settings)), 'setting');
-
-    // Add JS behavior file
-    $path = drupal_get_path('module', 'airfield') . '/airfield.behaviors.js';
-//        dpm($path, 'path to js file');
-    drupal_add_js($path);
+    $settings = _airfield_generate_map_settings($airfield_nodes);
+    
+    // Add custom Javascript
+    _airfield_add_javascript($settings);
 
     // Theme output
     $output = array(
@@ -146,26 +136,17 @@ function _airfield_block_content($block_id) {
 function airfield_node_view($node, $view_mode, $langcode) {
   if ($node->type == 'airfield' && $view_mode == 'full') {
     // Build JS data
-    $settings = _airfield_generate_map_data(array($node));
-    
-    // Add Google maps API key
-    drupal_add_js('https://maps.googleapis.com/maps/api/js?key=AIzaSyBv1xUaQivBONOhtV0qbJ_JRY74w691VRM', 'external');
+    $settings = _airfield_generate_map_settings(array($node));
 
-    // Pass data to JS Drupal.settings
-    drupal_add_js(array('airfield' => array('data' => $settings)), 'setting');
+    // Add custom Javascript
+    _airfield_add_javascript($settings);
 
-    // Add JS behavior file
-    $path = drupal_get_path('module', 'airfield') . '/airfield.behaviors.js';
-//        dpm($path, 'path to js file');
-    drupal_add_js($path);
-    
     // Theme map
     $node->content['airfield_gmap'] = array(
       '#markup' => theme('airfield_gmap', array(
         'settings' => $settings,
       )),
-      // doesn't work ?
-      '#weight' => 100,
+      '#weight' => -10,
     );
   }
 }
@@ -183,7 +164,9 @@ function airfield_theme($existing, $type, $theme, $path) {
 }
 
 /**
- * Airfield theme function for google map.
+ * Airfield theme function for map container.
+ * Always pass settings variable to this theme function, as it contains the
+ * canvas id and width and height settings.
  */
 function theme_airfield_gmap($variables) {
   $settings = $variables['settings'];
@@ -196,38 +179,6 @@ function theme_airfield_gmap($variables) {
   $output = '<div id="' . $settings['canvas'] . '" style="width:' . $settings['map']['width'] . 'px;height:' . $settings['map']['height'] . 'px;"></div>';
   return $output;
 }
-// OLD FUNCTION
-//function theme_airfield_gmap($variables) {
-////  dpm($variables, 'theme_airfield_gmap variables');
-////  dpm($variables['node']->latitude, 'node->latitude');
-//  $lat = $variables['node']->latitude[LANGUAGE_NONE][0]['value'];
-//  $long = $variables['node']->longitude[LANGUAGE_NONE][0]['value'];
-//
-//  // Cannot render map without both a latitude and longitude.
-//  if (($lat == '') || ($long == '')) {
-//    return;
-//  }
-//
-//  $output = '<div id="gmap-canvas-' . $variables['node']->nid . '" style="width:500px;height:400px;"></div>';
-//  return $output;
-//}
-
-/**
- * Airfield theme function for google map.
- * NO LONGER NEEDED ?
- */
-//function theme_airfield_region_gmap($variables) {
-////  dpm($variables, 'theme_airfield_region_gmap variables');
-//
-//  $region = $variables['region'];
-//  // Cannot render map without region.
-//  if (empty($region)) {
-//    return;
-//  }
-//
-//  $output = '<div id="gmap-canvas-region-' . $variables['region'] . '" style="width:800px;height:450px;"></div>';
-//  return $output;
-//}
 
 /**
  * Custom function : Determine if a value is in signed degrees format.
@@ -268,14 +219,19 @@ function _airfield_get_nodes() {
 }
 
 /**
- * Custom function : generate data array for JS behavior
+ * Custom function : generate settings variable to be passed onto airfield JS
+ * behavior. 
+ * @param array $nodes - array of (airfield) nodes. Nodes must have latitude and
+ *                       longitude field.
+ * @param string $canvas - id attribute of the map container
+ * @return array - settings variable
  */
-function _airfield_generate_map_data($nodes, $canvas = 'gmap-canvas') {
-  $data = array();
+function _airfield_generate_map_settings($nodes, $canvas = 'gmap-canvas') {
+  $settings = array();
 
-  $data['canvas'] = $canvas;
-  $data['markers'] = array();
-  $data['map'] = array(
+  $settings['canvas'] = $canvas;
+  $settings['markers'] = array();
+  $settings['map'] = array(
     'width' => 640,
     'height' => 480,
   );
@@ -287,10 +243,10 @@ function _airfield_generate_map_data($nodes, $canvas = 'gmap-canvas') {
       'longitude' => $node->longitude[LANGUAGE_NONE][0]['value'],
       'url' => url('node/' . $node->nid),
     );
-    $data['markers'][] = $marker;
+    $settings['markers'][] = $marker;
   }
 
-  return $data;
+  return $settings;
 }
 
 /**
@@ -298,7 +254,7 @@ function _airfield_generate_map_data($nodes, $canvas = 'gmap-canvas') {
  */
 function airfield_menu() {
   $items = array();
-  
+
   $items['admin/airfield/admin_gmap'] = array(
     'title' => 'Admin GMAP',
     'description' => 'Administer Google Maps API settings for airfield module',
@@ -307,7 +263,7 @@ function airfield_menu() {
     'access arguments' => array('access administration pages'),
     'type' => MENU_NORMAL_ITEM,
   );
-  
+
   return $items;
 }
 
@@ -322,6 +278,28 @@ function airfield_admin_form($form, &$form_state) {
     '#maxlength' => 255,
     '#required' => TRUE,
   );
-  
+
   return system_settings_form($form);
+}
+
+/**
+ * Custom function : Add javascript files
+ * @param type $settings - The data you want to pass onto the JS behavior,
+ * accessible through Drupal.settings. Use _airfield_generate_map_settings
+ * function to provide this variable.
+ */
+function _airfield_add_javascript($settings) {
+  // Get API key
+  $api_key = variable_get('airfield_gmap_api_key');
+
+  // Add Google maps API key
+  drupal_add_js('https://maps.googleapis.com/maps/api/js?key=' . $api_key, 'external');
+
+  // Pass data to JS Drupal.settings
+  drupal_add_js(array('airfield' => array('data' => $settings)), 'setting');
+
+  // Add JS behavior file
+  $path = drupal_get_path('module', 'airfield') . '/airfield.behaviors.js';
+//  dpm($path, 'path to js file');
+  drupal_add_js($path);
 }

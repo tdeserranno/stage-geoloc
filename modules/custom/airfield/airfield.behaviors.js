@@ -3,9 +3,9 @@
     //==== BEHAVIOR ================================================================
     Drupal.behaviors.airfield = {
         attach: function(context, settings) {
-//     alert('airfield.behaviors.js is available.');
+            // Retrieve data passed from PHP
             var data = Drupal.settings.airfield.data;
-//            console.log(data.canvas);
+            // Check if map canvas is available
             if ($('#' + data.canvas).length) {
                 generateMap(data);
             }
@@ -13,65 +13,46 @@
     }
 }(jQuery));
 //==== FUNCTIONS ===============================================================
-
-//function createNodeMap(data) {
-//    var centerLatLng = new google.maps.LatLng(data.lat, data.lng);
-//    var mapOptions = {
-//        center: centerLatLng,
-//        zoom: 15,
-//        mapTypeId: google.maps.MapTypeId.HYBRID
-//    };
-//    var map = new google.maps.Map(document.getElementById(data.canvas), mapOptions);
-//
-//    // Set marker
-//    var marker = new google.maps.Marker({
-//        map: map,
-//        title: data.name,
-//        position: centerLatLng
-//    });
-//}
-
 function generateMap(data) {
-    // Build latlng array
-    var aLatLng = new Array();
-    data.markers.forEach(function(element, index, array) {
-        console.log(element);
-        var latlng = new google.maps.LatLng(element.latitude, element.longitude);
-        aLatLng.push(latlng);
-    });
-
     // Initialize map on first data element
+    var firstMarker = new google.maps.LatLng(data.markers[0].latitude, data.markers[0].longitude);
     var mapOptions = {
-        center: aLatLng[0],
+        center: firstMarker,
         zoom: 15,
         mapTypeId: google.maps.MapTypeId.HYBRID
     };
     var map = new google.maps.Map(document.getElementById(data.canvas), mapOptions);
-
+    
     // Add markers
+    var bounds = new Array();
+    var markerCount = data.markers.length;
+    // Loop data.markers array
     data.markers.forEach(function(element, index, array) {
         // Create LatLng
-        var myLatlng = new google.maps.LatLng(element.latitude, element.longitude);
+        var myLatLng = new google.maps.LatLng(element.latitude, element.longitude);
+        
+        // Add LatLng to bounds array
+        bounds.push(myLatLng);
 
         // Set marker
         var marker = new google.maps.Marker({
             map: map,
-            position: myLatlng,
+            position: myLatLng,
             title: element.title,
             url: element.url
         });
-        if (aLatLng.length > 1) {
+        // If multiple markers, add link to node for each marker
+        if (markerCount > 1) {
             google.maps.event.addListener(marker, 'click', function() {
                 window.location.href = this.url;
             });
         }
-
     });
 
-    if (aLatLng.length > 1) {
-        // Determine map bounds and center
+    // If multiple markers, set new map center and calculate appropriate zoom level
+    if (markerCount > 1) {
         var latlngbounds = new google.maps.LatLngBounds();
-        aLatLng.forEach(function(element, index, array) {
+        bounds.forEach(function(element, index, array) {
             latlngbounds.extend(element);
         });
         map.setCenter(latlngbounds.getCenter());
