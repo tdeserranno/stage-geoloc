@@ -18,11 +18,11 @@ function generateMap(data) {
     var firstMarker = new google.maps.LatLng(data.markers[0].latitude, data.markers[0].longitude);
     var mapOptions = {
         center: firstMarker,
-        zoom: 15,
+        zoom: parseInt((data.map.zoom) ? data.map.zoom : 15),
         mapTypeId: google.maps.MapTypeId.HYBRID
     };
     var map = new google.maps.Map(document.getElementById(data.canvas), mapOptions);
-    
+
     // Add markers
     var bounds = new Array();
     var markerCount = data.markers.length;
@@ -30,22 +30,24 @@ function generateMap(data) {
     data.markers.forEach(function(element, index, array) {
         // Create LatLng
         var myLatLng = new google.maps.LatLng(element.latitude, element.longitude);
-        
+
         // Add LatLng to bounds array
         bounds.push(myLatLng);
 
-        // Set marker
-        var marker = new google.maps.Marker({
-            map: map,
-            position: myLatLng,
-            title: element.title,
-            url: element.url
-        });
-        // If multiple markers, add link to node for each marker
-        if (markerCount > 1) {
-            google.maps.event.addListener(marker, 'click', function() {
-                window.location.href = this.url;
+        // Set marker if coords are not default
+        if (element.title != 'default') {
+            var marker = new google.maps.Marker({
+                map: map,
+                position: myLatLng,
+                title: element.title,
+                url: element.url
             });
+            // If multiple markers, add link to node for each marker
+            if (markerCount > 1) {
+                google.maps.event.addListener(marker, 'click', function() {
+                    window.location.href = this.url;
+                });
+            }
         }
     });
 

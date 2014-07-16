@@ -113,8 +113,8 @@ function _airfield_block_content($block_id) {
     $airfield_nodes = _airfield_get_nodes();
 //    dpm($airfield_nodes, 'airfields');
     // Build JS data
-    $settings = _airfield_generate_map_settings($airfield_nodes);
-    
+    $settings = _airfield_generate_map_settings($airfield_nodes());
+
     // Add custom Javascript
     _airfield_add_javascript($settings);
 
@@ -234,18 +234,29 @@ function _airfield_generate_map_settings($nodes, $canvas = 'gmap-canvas') {
   $settings['map'] = array(
     'width' => 640,
     'height' => 480,
+    'zoom' => variable_get('airfield_gmap_def_zoom', 8),
   );
 
-  foreach ($nodes as $node) {
-    $marker = array(
-      'title' => $node->title,
-      'latitude' => $node->latitude[LANGUAGE_NONE][0]['value'],
-      'longitude' => $node->longitude[LANGUAGE_NONE][0]['value'],
-      'url' => url('node/' . $node->nid),
+  // If nodes are empty, use default configuration values, else use provided node data
+  if (empty($nodes)) {
+    $settings['markers'][] = array(
+      'title' => 'default',
+      'latitude' => variable_get('airfield_gmap_def_lat'),
+      'longitude' => variable_get('airfield_gmap_def_lng'),
+      'url' => '',
     );
-    $settings['markers'][] = $marker;
   }
-
+  else {
+    foreach ($nodes as $node) {
+      $marker = array(
+        'title' => $node->title,
+        'latitude' => $node->latitude[LANGUAGE_NONE][0]['value'],
+        'longitude' => $node->longitude[LANGUAGE_NONE][0]['value'],
+        'url' => url('node/' . $node->nid),
+      );
+      $settings['markers'][] = $marker;
+    }
+  }
   return $settings;
 }
 
