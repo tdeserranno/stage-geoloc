@@ -1,0 +1,7 @@
+name = Content Export
+description = A module that allows exporting of content in JSON format.
+core = 7.x
+version = 7.x-dev
+package = Stage modules
+;
+files[] = contentexport.module

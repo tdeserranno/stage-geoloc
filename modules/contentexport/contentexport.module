@@ -1,0 +1,475 @@
+<?php
+
+/**
+ * @file
+ * A module that allows exporting of content in JSON format.
+ * 
+ */
+/**
+ * Custom constants
+ */
+//Custom FILE_EXISTS, defined more for the ability to change possible multiple occurences from 1 location.
+define('CONTENTEXPORT_FILE_SAVE_BEHAVIOR', FILE_EXISTS_REPLACE);
+
+/**
+ * Implements hook_help().
+ */
+function contentexport_help($path, $args) {
+  if ($path === 'admin/help#content_export') {
+    return '<p>' . t('A module that allows exporting of content in JSON format.') . '</p>';
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function contentexport_menu() {
+  $items['admin/export/select'] = array(
+    'title' => 'Export content',
+    'description' => 'Export a content type',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('contentexport_form'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ * Form builder : content_export select content type to export.
+ */
+function contentexport_form($form, &$form_state) {
+  $node_types = node_type_get_types();
+  $options = array();
+  foreach ($node_types as $node_type) {
+    $options[$node_type->type] = $node_type->name;
+  }
+
+  $form['content_type'] = array(
+    '#title' => t('Select content type'),
+    '#description' => t('Select the content type you wish to export.'),
+    '#type' => 'select',
+    '#options' => $options,
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Export'),
+  );
+
+  return $form;
+}
+
+/**
+ * Form submit handler : handle contentexport_form.
+ */
+function contentexport_form_submit($form, &$form_state) {
+  $node_type = $form_state['values']['content_type'];
+
+  // Get fieldinfo for fields of node_type.
+  $node_fields = field_info_instances('node', $node_type);
+  foreach ($node_fields as $field_name => $field) {
+    $fields[$field_name] = field_info_field($field['field_name']);
+  }
+//  dpm($fields, 'fields');
+  // Only trustworthy for drupal 7.22 or above
+//  $fields = field_read_fields(array(
+//    'entity_type' => 'node',
+//    'bundle' => $node_type,
+//  ));
+  // Filter out fields that don't need to be checked.
+  if (isset($fields['body'])) {
+    unset($fields['body']);
+  }
+
+  // Load nodes.
+  $nodes = _contentexport_get_nodes($node_type, $fields);
+
+  // Export nodes.
+  if (!empty($nodes)) {
+//    dpm($nodes, 'nodes to export');
+    _contentexport_export_json_unmanaged($nodes, $fields);
+  }
+}
+
+/**
+ * Custom function : get all nodes of selected type.
+ */
+function _contentexport_get_nodes($node_type, $fields) {
+  $nodes = array();
+  // Get nids from database.
+  $query = db_select('node', 'n')
+      ->fields('n', array('nid', 'type'))
+      ->condition('type', $node_type);
+  $nids = $query->execute()->fetchCol();
+
+
+  // Check if there are nodes to load.
+  if (!empty($nids)) {
+    // Get menu links data
+    $menudata = _contentexport_get_menulinks();
+//    dpm($menudata, 'menulinks database query');
+
+    // Load nodes.
+    $nodes = node_load_multiple($nids);
+
+    // Create array of field names to test node properties against.
+    $field_names = array_keys($fields);
+
+    // Cycle through all nodes to load any extra data, in this case the taxonomy terms.
+    // Note: loop values by reference so that it is possible to load the data into the same position of the array.
+    foreach ($nodes as &$node) {
+      // Cycle through each node property.
+      foreach ($node as $property_name => &$property) {
+        // Find the field properties.
+        if (in_array($property_name, $field_names)) {
+          // Load the field info for the field.
+          $field_info = $fields[$property_name];
+          // If the field is a taxonomy term reference, load the term.
+          if ($field_info['type'] === 'taxonomy_term_reference') {
+            $property = _contentexport_load_taxonomy_ref($property);
+          }
+        }
+      }
+      // Load url alias for each node.
+      $node->url_alias = drupal_get_path_alias('node/' . $node->nid, $node->language);
+
+      // Set menu info for node
+      $node->xref = $node->nid;
+      $node->menu_info = _contentexport_set_menuinfo($node, $menudata);
+    }
+  } else {
+   drupal_set_message(t('No nodes found for content type %node_type', array('%node_type' => $node_type)), 'warning');
+  }
+
+  return $nodes;
+}
+
+/**
+ * Custom function : export given nodes to JSON format.
+ */
+function _contentexport_export_json_unmanaged(array $nodes, $fields) {
+  // Check if there is actual data to export.
+  if (empty($nodes)) {
+    // Inform user.
+    drupal_set_message(t('Nothing to export.'), 'error');
+//    drupal_goto('admin/export/select');
+    return;
+  }
+
+  // Build data array.
+  $file_data = drupal_json_encode($nodes);
+//  dpm($file_data, 'json data');
+  // Attempt export.
+  $errors = array();
+  try {
+    $node_keys = array_keys($nodes);
+    $first_node = $nodes[$node_keys[0]];
+
+    // Create export directory.
+    $directory = 'public://export/' . _contentexport_generate_filename($first_node->type);
+    if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+      throw new Exception(t('Failed to create %directory.', array('%directory' => $directory)));
+    }
+
+    // Create export image directory.
+    $images_directory = 'public://export/' . _contentexport_generate_filename($first_node->type) . '/image';
+    if (!file_prepare_directory($images_directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+      throw new Exception(t('Failed to create %directory.', array('%directory' => $images_directory)));
+    }
+
+    // Create JSON file.
+    $filename = _contentexport_generate_filename($first_node->type, 'json');
+    $destination = $directory . '/' . $filename;
+    $filename = file_unmanaged_save_data($file_data, $destination, CONTENTEXPORT_FILE_SAVE_BEHAVIOR);
+    if ($filename) {
+      $url = file_create_url($filename);
+      drupal_set_message(t('Saved file as %filename, accessible via !url.', array(
+        '%filename' => $filename,
+        '!url' => l(t('this URL'), $url),
+      )));
+    }
+    else {
+      throw new Exception(t('Failed to save the file.'));
+    }
+
+    $image_counter = 0;
+    // Cycle through all nodes
+    foreach ($nodes as $node) {
+      // For each image field type.
+      foreach ($fields as $field) {
+        if ($field['type'] === 'image') {
+          // Check if there are images for the field in the node for each language
+          if (isset($node->{$field['field_name']}) && !empty($node->{$field['field_name']})) {
+            $copy_summary = _contentexport_field_copy_images($node->{$field['field_name']}, $images_directory);
+            $image_counter += $copy_summary['counter'];
+            array_merge($errors, $copy_summary['errors']);
+          }
+        }
+      }
+    }
+
+    // Notify user.
+    if (!empty($errors)) {
+      // Log errors.
+      if (_contentexport_log_errors($errors) === FALSE) {
+        drupal_set_message(t('Error logging failed.'), 'error');
+      }
+    }
+    else {
+      if ($image_counter !== 0) {
+        drupal_set_message(t('%counter node images copied to %directory', array('%counter' => $image_counter, '%directory' => $images_directory)));
+      }
+      else {
+        drupal_set_message(t('No node images were copied.'));
+      }
+    }
+
+    // Redirect to front.
+    drupal_goto('admin/export/select');
+  }
+  catch (Exception $exc) {
+    // Add exception to errors.
+    $errors[] = $exc->getMessage();
+
+    // Log errors.
+    _contentexport_log_errors($errors, $exc);
+
+    // Redirect to front.
+    drupal_goto('admin/export/select');
+  }
+}
+
+/**
+ * Custom function: Generate filename/directoryname.
+ * When extension is not provided this function will generate a name that can be
+ * used for a directory. 
+ */
+function _contentexport_generate_filename($prefix, $extension = '') {
+  $filename = $prefix;
+  $filename .= '_' . format_date(time(), 'custom', 'd-m-Y');
+  if ($extension !== '') {
+    $filename .= '.' . $extension;
+  }
+
+  return $filename;
+}
+
+/**
+ * Custom function : Log export errors in a text file.
+ */
+function _contentexport_log_errors(array $errors, $exception = NULL) {
+  // Create log directory.
+  $directory = 'public://export/log/';
+  if (!file_prepare_directory($directory, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+    drupal_set_message(t('Failed to create %directory.', array('%directory' => $directory)), 'error');
+    return FALSE;
+  }
+
+  // Create error log.
+  $file = $directory . 'errorlog.txt';
+  if (!empty($errors)) {
+    foreach ($errors as $error) {
+      // Build errorstring.
+      $errorstring = format_date(REQUEST_TIME, 'custom', 'd-m-Y H:i:s') . ' : ' . $error . PHP_EOL;
+
+      // Write errorstring.
+      if (file_put_contents($file, $errorstring, FILE_APPEND | LOCK_EX) === FALSE) {
+        drupal_set_message(t('Failed to write %string to error logfile.', array('%string' => $errorstring)), 'error');
+        return FALSE;
+      }
+    }
+  }
+
+  // Notify user about fatal error.
+  $url = file_create_url($file);
+  if ($exception !== NULL) {
+    drupal_set_message(t('A fatal error occurred during the export process. See the errorlog for details, accessible via !url.', array(
+      '!url' => l(t('this URL'), $url),
+        )), 'error');
+  }
+  // Notify user about file copy errors.
+  else {
+    drupal_set_message(t('Some files were not copied. See the errorlog for details, accessible via !url.', array(
+      '!url' => l(t('this URL'), $url),
+        )), 'warning');
+  }
+}
+
+/**
+ * Custom function : Set menu info for node
+ */
+function _contentexport_set_menuinfo($node, $menudata) {
+  $info = array();
+
+  // Cycle through each menudata item
+  foreach ($menudata as $item) {
+    $pattern = '/node\/(\d+)/';
+    // Check if item link path matches
+    if (preg_match($pattern, $item->link_path, $match)) {
+      // Check if node id matches matched item
+      if ($node->nid == $match[1]) {
+        $info['menu_name'] = $item->menu_name;
+        if ($item->plid == 0) {
+          $info['parent'] = 'none';
+        }
+        elseif (preg_match($pattern, $item->parent_link_path, $parent_match)) {
+          $info['parent'] = $parent_match[1];
+        }
+      }
+    }
+  }
+
+  return $info;
+}
+
+/**
+ * Custom function : Custom DB query to get menu links data
+ */
+function _contentexport_get_menulinks() {
+  // HeidiSQL query, needs to be recreated with Dynamic queries
+  /*  select c.menu_name, c.mlid, c.link_path, c.plid, p.link_path as parent_link_path
+    from menu_links c
+    inner join menu_links p on c.plid = p.mlid
+    where c.link_path like 'node/%'
+    and c.plid != 0
+    union
+    select menu_name, mlid, link_path, plid, 'none' as parent_link_path
+    from menu_links
+    where link_path like 'node/%'
+    and plid = 0
+   */
+  // Single query ??? incomplete
+  // did not work because of different amount of columns upon union
+  // need to figure out how to replace select 'none' as parent_link_path with dynamic queries
+//  $query1 = db_select('menu_links', 'ml')
+//      ->fields('ml', array('menu_name', 'mlid', 'link_path', 'plid'));
+//      $query1->addExpression('none', 'parent_link_path');
+//      $query1->condition('ml.link_path', 'node/%', 'LIKE')
+//      ->condition('ml.plid', 0);
+////  $result = $query1->execute()->fetchAll();
+//  
+//  $query2 = db_select('menu_links', 'ml');
+//  $query2->join('menu_links', 'pml', 'ml.plid = pml.mlid');
+//  $query2->fields('ml', array('menu_name', 'mlid', 'link_path', 'plid'));
+//  $query2->addField('pml', 'link_path', 'parent_link_path');
+//  $query2->condition('ml.link_path', 'node/%', 'LIKE')
+//      ->condition('ml.plid', 0, '!=');
+//  $query2->union($query1);
+//  
+//  $result = $query2->execute()-fetchAll();
+  // 2 Seperate queries and merging the 2 result arrays
+  $noparent_query = db_select('menu_links', 'ml')
+      ->fields('ml', array('menu_name', 'mlid', 'link_path', 'plid'))
+      ->condition('ml.link_path', 'node/%', 'LIKE')
+      ->condition('ml.plid', 0);
+  $noparent_result = $noparent_query->execute()->fetchAll();
+
+  $parent_query = db_select('menu_links', 'ml');
+  $parent_query->join('menu_links', 'pml', 'ml.plid = pml.mlid');
+  $parent_query->fields('ml', array('menu_name', 'mlid', 'link_path', 'plid'));
+  $parent_query->addField('pml', 'link_path', 'parent_link_path');
+  $parent_query->condition('ml.link_path', 'node/%', 'LIKE')
+      ->condition('ml.plid', 0, '!=');
+  $parent_result = $parent_query->execute()->fetchAll();
+
+//  dpm($noparent_result, 'query result menulinks plid=0');
+//  dpm($parent_result, 'query result menulinks plid!=0');
+  // Merge results.
+  $result = array_merge($noparent_result, $parent_result);
+
+  return $result;
+}
+
+/**
+ * Custom function : load taxonomy term data for each tid entry
+ */
+function _contentexport_load_taxonomy_ref($property) {
+  // Build languages array.
+  $languages = array_keys($property);
+//  $languages = array('und');
+//  if (isset($node->language) && !empty($node->language)) {
+//    $languages[] = $node->language;
+//  }
+  // Check taxonomies for each languages
+  foreach ($languages as $language) {
+    if (isset($property[$language]) && !empty($property[$language])) {
+      foreach ($property[$language] as &$term) {
+        $term_data = taxonomy_term_load($term['tid']);
+        if ($term_data !== FALSE) {
+          $term = $term_data;
+        }
+        else {
+          $term = NULL;
+        }
+      }
+      // Unset array if empty, possible when all terms failed to load
+      $empty = TRUE;
+      foreach ($property[$language] as $term) {
+        if ($term !== NULL) {
+          $empty = FALSE;
+        }
+      }
+      if ($empty) {
+        unset($property[$language]);
+      }
+    }
+  }
+  return $property;
+}
+
+/**
+ * Custom function : Copy images to export folder
+ * Subdirectories will be created under main image folder based on original 
+ * file uri directory tree.
+ */
+function _contentexport_field_copy_images($node_property, $images_directory) {
+  $summary['counter'] = 0;
+  $summary['errors'] = array();
+
+  //Get languages
+  $languages = array_keys($node_property);
+  foreach ($languages as $language) {
+    // Copy each image
+    foreach ($node_property[$language] as $image) {
+      if (isset($image['uri']) && !empty($image['uri'])) {
+        // Prepare destination parameter
+        // Isolate directories in image uri
+        $regex = '/^public:\/\/(.+\/)+/';
+        preg_match($regex, $image['uri'], $match);
+//        dpm($match, 'regex match original image uri');
+        // Build destination uri string
+        if (isset($match)) {
+          // Discard full pattern match
+          unset($match[0]);
+          // Set start of destination uri
+          $destination = $images_directory . '/';
+          // Append each matchpart to destination
+          foreach ($match as $match_part) {
+            $destination .= $match_part;
+          }
+        }
+        else {
+          // In case of no match, although potential problems with FILE_EXISTS_REPLACE/RENAME setting
+          // SUBJECT TO CHANGE !!!
+          $destination = $images_directory . '/' . 'images';
+        }
+        // Check/Create destination directory
+        if (!file_prepare_directory($destination, FILE_MODIFY_PERMISSIONS | FILE_CREATE_DIRECTORY)) {
+          $summary['errors'][] = t('Failed to create %directory.', array('%directory' => $destination));
+        }
+        // Copy file to destination
+        if (!file_unmanaged_copy($image['uri'], $destination, CONTENTEXPORT_FILE_SAVE_BEHAVIOR)) {
+          $summary['errors'][] = t('Failed to copy %picture', array('%picture' => $image['uri']));
+        }
+        else {
+          $summary['counter'] ++;
+          // Test copy errors
+//              $summary['errors'][] = t('Copy error test %picture', array('%picture' => $image['uri']));
+        }
+      }
+    }
+  }
+
+  return $summary;
+}
