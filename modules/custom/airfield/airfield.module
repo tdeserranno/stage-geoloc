@@ -234,7 +234,6 @@ function _airfield_generate_map_settings($nodes, $canvas = 'gmap-canvas') {
   $settings['map'] = array(
     'width' => 640,
     'height' => 480,
-    'zoom' => variable_get('airfield_gmap_def_zoom', 8),
   );
 
   // If nodes are empty, use default configuration values, else use provided node data
@@ -245,6 +244,7 @@ function _airfield_generate_map_settings($nodes, $canvas = 'gmap-canvas') {
       'longitude' => variable_get('airfield_gmap_def_lng'),
       'url' => '',
     );
+    $settings['map']['zoom'] = variable_get('airfield_gmap_def_zoom', 8);
   }
   else {
     foreach ($nodes as $node) {
