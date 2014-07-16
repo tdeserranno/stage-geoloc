@@ -113,7 +113,7 @@ function _airfield_block_content($block_id) {
     $airfield_nodes = _airfield_get_nodes();
 //    dpm($airfield_nodes, 'airfields');
     // Build JS data
-    $settings = _airfield_generate_map_settings($airfield_nodes());
+    $settings = _airfield_generate_map_settings($airfield_nodes);
 
     // Add custom Javascript
     _airfield_add_javascript($settings);
