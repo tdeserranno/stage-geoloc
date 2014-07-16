@@ -277,6 +277,31 @@ function airfield_admin_form($form, &$form_state) {
     '#size' => 100,
     '#maxlength' => 255,
     '#required' => TRUE,
+    '#default_value' => variable_get('airfield_gmap_api_key'),
+  );
+  $form['airfield_gmap_def_lat'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Google Maps default latitude'),
+    '#size' => 100,
+    '#maxlength' => 255,
+    '#required' => TRUE,
+    '#default_value' => variable_get('airfield_gmap_def_lat'),
+  );
+  $form['airfield_gmap_def_lng'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Google Maps default longitude'),
+    '#size' => 100,
+    '#maxlength' => 255,
+    '#required' => TRUE,
+    '#default_value' => variable_get('airfield_gmap_def_lng'),
+  );
+  $form['airfield_gmap_def_zoom'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Google Maps default zoom level'),
+    '#size' => 100,
+    '#maxlength' => 255,
+    '#required' => TRUE,
+    '#default_value' => variable_get('airfield_gmap_def_zoom'),
   );
 
   return system_settings_form($form);
